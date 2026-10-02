@@ -7,10 +7,14 @@ authors = [
     { name = "matheo-valiente", email = "valiente.matheo@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "faker>=40.37.0",
+]
 
 [project.scripts]
 big-data-fw = "big_data_fw:main"
+dataset-users = "big_data_fw.dataset_users:main"
+dataset-orders = "big_data_fw.dataset_orders:main"
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
