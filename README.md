@@ -1,6 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
+All four labs are completed: uv, S3, DuckDB and dbt.
 
 ## Lab 1 – uv
 
@@ -24,12 +25,12 @@ uv run dataset-orders -o csv > orders.csv
 - [x] `*.csv` added to `.gitignore`
 - [x] ConfigMaps `datasets` and `s3-config`, Secret `s3-credentials` created
 - [x] Job `k8s/job-upload-bronze.yaml` written and running (pods start, read the data and reach S3)
-- [ ] Final upload to `bronze/`: blocked by a server-side error (see below) but finally worked 
+- [x] Final upload of `users.csv` and `orders.csv` to `bronze/`, done after the platform fix on October 12, 2026
 
 ### Issues
 
 - **Onyxia quota**: at first the Job couldn't create any pod (`must specify limits.cpu`). I fixed it by adding `limits.cpu: 500m` to the YAML.
-- **S3 server error**: uploads to my bucket failed with `InternalError` (500), which is a server-side error. I tested from the terminal, with s5cmd and from the Job, on different prefixes, even with a 6-byte file. The rest of my setup works (read, delete, bucket policy). I reported it to the teacher and will rerun the Job once it's fixed.
+- **S3 server error**: uploads to my bucket failed with `InternalError` (500), a server-side error. I tested from the terminal, with s5cmd and from the Job, on different prefixes, even with a 6-byte file, while reads, deletes and bucket policies worked. I reported it to the teacher. The platform was fixed on October 12, 2026, and the upload to `bronze/` then worked.
 
 ### Questions
 
@@ -41,3 +42,40 @@ The credentials will have expired, so the Job will fail. In production, you woul
 
 **How to make it a daily ingestion?**
 Turn the Job into a `CronJob` with a schedule like `"0 2 * * *"` (every day at 2am).
+
+## Lab 3 – DuckDB
+
+- Queried the bronze CSV files directly on S3 with `read_csv`, using the `s3_onyxia_connection` secret
+- Loaded the `users` and `orders` tables in `analytics.duckdb`, data quality checks with `ANTI JOIN`
+- Aggregations, joins, window functions (`QUALIFY`, moving average) and `PIVOT`
+- Parquet export, footer metadata, Hive partitioning by `product` (only 1 of 6 files scanned)
+- CSV vs Parquet comparison on a large dataset: Parquet only downloads the needed columns
+- `orders-report` command using the DuckDB Python API with query parameters
+
+```bash
+uv run orders-report -p cookie
+```
+
+## Lab 4 – dbt
+
+dbt project `lab_medallion` with the `dbt-duckdb` adapter, building the silver layer from the bronze CSV files.
+
+- **Bronze**: `models/bronze/sources.yml`, the path is read from the `BRONZE_PATH` environment variable
+- **Silver**: `stg_users` (typed, address split into street, city, state and zip code) and `stg_orders` (typed, deduplicated with `QUALIFY`)
+- **Tests**: generic tests (`unique`, `not_null`, `accepted_values`, `relationships`) and 2 singular tests
+- **Result**: `dbt build --select silver` gives `PASS=15 WARN=1 ERROR=0`
+- **Docs**: generated with `dbt docs generate --static`
+- **Export**: silver models exported as Parquet to `s3://user-m-valiente-ece/silver/dbt/`, with the same row count as the views (2829 orders)
+
+```bash
+cd lab_medallion
+export BRONZE_PATH="s3://$LAB_BUCKET_NAME/bronze"
+uv run dbt build --select silver
+```
+
+### Issues
+
+- **Bronze layer before the fix**: while S3 uploads failed, I read the bronze CSV files from a local directory through `BRONZE_PATH`. After the fix, I switched it to S3 without changing the dbt code.
+- **Expired DuckDB credentials**: after the fix, dbt failed with `403 InvalidAccessKeyId` because the DuckDB secret still held old credentials. I recreated `s3_onyxia_connection` from the `default` AWS profile.
+- **`assert_orders_after_user_birth`**: 288 orders are placed before the user's birthdate, because Faker generates birthdates relative to today while orders are dated 2020. The test is set to `severity='warn'`.
+- **`states` seed**: the `relationships` test from `state` to `ref('states')` was removed, since the lab never creates this seed.
