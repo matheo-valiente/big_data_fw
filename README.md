@@ -79,3 +79,12 @@ uv run dbt build --select silver
 - **Expired DuckDB credentials**: after the fix, dbt failed with `403 InvalidAccessKeyId` because the DuckDB secret still held old credentials. I recreated `s3_onyxia_connection` from the `default` AWS profile.
 - **`assert_orders_after_user_birth`**: 288 orders are placed before the user's birthdate, because Faker generates birthdates relative to today while orders are dated 2020. The test is set to `severity='warn'`.
 - **`states` seed**: the `relationships` test from `state` to `ref('states')` was removed, since the lab never creates this seed.
+
+## Lab: Spark RDD API
+
+Details: [`lab-rdd/lab_rdd.md`](lab-rdd/lab_rdd.md)
+
+- Read bronze `users.csv` and `orders.csv` with `sc.textFile` and observed partitions and lazy evaluation.
+- Handled multiline addresses without a schema (101 lines for 50 users) and parsed orders by hand.
+- Compared `reduceByKey` and `groupByKey`, deduplicated orders and joined them with users.
+- Exercises: `aggregateByKey`, `leftOuterJoin` with an orphan order, DataFrame comparison, cache timing.
