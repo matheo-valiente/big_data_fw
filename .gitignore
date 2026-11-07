@@ -14,3 +14,4 @@ dbt_packages/
 logs/
 *.duckdb
 *.parquet
+warehouse/**/data/
