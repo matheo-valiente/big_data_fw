@@ -1,7 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
-Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames and Polaris deployment.
+Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment and Polaris governance.
 
 ## Lab 1 – uv
 
@@ -143,3 +143,19 @@ curl -s http://polaris-mgmt:8182/q/health
 
 - **Patch not applied**: `kubectl rollout status` stayed on `0 out of 1 new pods have been updated` because of the StatefulSet update strategy. Fixed by deleting the pod (`kubectl delete pod vscode-pyspark-228462-0`); the StatefulSet recreated it with the new limits and the volume was kept.
 - **Missing AWS profile**: no `default` profile in the new service, so the `aws` CLI was used with `--endpoint-url "https://$AWS_S3_ENDPOINT"` and the environment credentials.
+
+## Lab: Govern Iceberg tables with Polaris
+
+Spark connected to the Polaris catalog through the Iceberg REST API, with two Spark catalogs in the same session: `lab` (Hadoop catalog of the Spark lab) and `polaris` (REST catalog, authenticated as `dev` or `analyst`).
+
+- **Register**: `lab.silver.orders` registered in Polaris with `register_table` on `v1.metadata.json`. No file was written in the bucket, only a pointer in the Polaris database. Count through Polaris: 2829 orders.
+- **Create as `dev`**: `polaris.silver.users` created from `lab.silver.users` (50 rows). Polaris wrote it under `warehouse/silver/users/` with its own naming (`00000-<uuid>.metadata.json`).
+- **Schema change as `dev`**: `ALTER TABLE ... ADD COLUMN country` created a new metadata file `00001-<uuid>.metadata.json`, without rewriting any data file.
+- **Read as `analyst`**: `SHOW TABLES` and `SELECT` work. `INSERT` and `ALTER TABLE` are denied with `ForbiddenException`, for example `not authorized for op ADD_TABLE_SCHEMA` through `data_analyst` → `catalog_reader`. No snapshot was created by the failed `INSERT`.
+- **Git**: new Polaris metadata files of `silver/users` committed.
+- **Cleanup**: `polaris.silver.users` dropped, `polaris.silver.orders` kept for the Trino lab.
+
+### Issues
+
+- **No `default` AWS profile**: `aws configure export-credentials --profile default` was skipped. The environment credentials of the service were used, with `--endpoint-url "https://$AWS_S3_ENDPOINT"` for the `aws` CLI.
+- **Switching principal**: the PySpark shell was exited and relaunched to start a fresh session with the other credential.
