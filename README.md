@@ -1,7 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
-All four labs are completed: uv, S3, DuckDB and dbt.
+Labs completed: uv, S3, DuckDB, dbt, Spark RDD and Spark DataFrames.
 
 ## Lab 1 – uv
 
@@ -88,3 +88,24 @@ Details: [`lab-rdd/lab_rdd.md`](lab-rdd/lab_rdd.md)
 - Handled multiline addresses without a schema (101 lines for 50 users) and parsed orders by hand.
 - Compared `reduceByKey` and `groupByKey`, deduplicated orders and joined them with users.
 - Exercises: `aggregateByKey`, `leftOuterJoin` with an orphan order, DataFrame comparison, cache timing.
+
+## Lab: Bronze to silver with Spark DataFrames
+
+Same silver layer as the dbt lab, built with PySpark (DataFrame API and Spark SQL), written to S3 as Parquet and as Iceberg tables.
+
+- **Session**: `SparkSession` in `local[*]` with the S3A connector (`TemporaryAWSCredentialsProvider`, path-style access) and an Iceberg catalog `lab` of type `hadoop` on `s3a://user-m-valiente-ece/warehouse`
+- **Bronze**: `users.csv` and `orders.csv` read directly from S3 (`multiLine=True` for the 2-line addresses), cached
+- **Silver**: `stg_users` (address split into street, city, state, zip code with `regexp_extract`, empty city replaced by `NULL`) and `stg_orders` (typed, deduplicated with `row_number()` over a window by `order_id`)
+- **Parquet**: `s3://user-m-valiente-ece/silver/spark/{users,orders}.parquet/`
+- **Iceberg**: tables `lab.silver.users` (50 rows) and `lab.silver.orders` (2829 rows, same count as dbt)
+- **Git**: only the Iceberg metadata is committed (`warehouse/silver/*/metadata`), not the data files
+
+```bash
+pyspark --master local[*] --packages org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0
+```
+
+### Issues
+
+- **403 Forbidden from Spark** while the `aws` CLI worked: the S3A connector kept a cached `S3AFileSystem` built with expired credentials, even after `spark.stop()`. Fixed by restarting the JVM, reading fresh credentials and setting `spark.hadoop.fs.s3a.impl.disable.cache=true`.
+- **Resources**: the service had 2 CPU / 2000Mi and Spark jobs got stuck. Recreated `vscode-pyspark` with the required limits `cpu: 4000m`, `memory: 4000Mi`.
+- **Missing AWS profile** in the new service: used `aws s3 sync ... --endpoint-url "https://$AWS_S3_ENDPOINT"` with the environment credentials.
