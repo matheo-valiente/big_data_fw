@@ -1,7 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
-Labs completed: uv, S3, DuckDB, dbt, Spark RDD and Spark DataFrames.
+Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames and Polaris deployment.
 
 ## Lab 1 – uv
 
@@ -109,3 +109,37 @@ pyspark --master local[*] --packages org.apache.iceberg:iceberg-spark-runtime-4.
 - **403 Forbidden from Spark** while the `aws` CLI worked: the S3A connector kept a cached `S3AFileSystem` built with expired credentials, even after `spark.stop()`. Fixed by restarting the JVM, reading fresh credentials and setting `spark.hadoop.fs.s3a.impl.disable.cache=true`.
 - **Resources**: the service had 2 CPU / 2000Mi and Spark jobs got stuck. Recreated `vscode-pyspark` with the required limits `cpu: 4000m`, `memory: 4000Mi`.
 - **Missing AWS profile** in the new service: used `aws s3 sync ... --endpoint-url "https://$AWS_S3_ENDPOINT"` with the environment credentials.
+
+
+
+## Lab: Deploy Polaris with Helm (k8s)
+
+Polaris (Iceberg REST catalog) and its PostgreSQL database deployed in my namespace with a Helm chart, as a prerequisite for the Polaris lab.
+
+- **Resources**: `vscode-pyspark` patched with `kubectl patch` to `limits` 2000m / 2500Mi and `requests` 50m / 200Mi, to leave quota for Polaris
+- **Helm chart** `polaris/deployment/`:
+  - `Chart.yaml`: dependencies `polaris` 1.8.0 and `postgresql` 18.12.15 (Bitnami)
+  - `values.yaml`: JDBC persistence on PostgreSQL, S3 credentials from a Secret, init container that bootstraps the `root` principal
+  - `templates/bootstrap-job.yaml`: post-install Job that creates principals, roles and the catalog through the management API
+  - `templates/polaris-db-secret.yaml`: database Secret with an auto-generated password
+- **Kubernetes objects**: ConfigMap `polaris-config`, Secrets `polaris-credential` (root) and `polaris-s3` (S3 credentials)
+- **Deployment**: `helm upgrade --install polaris polaris/deployment --wait` gives `STATUS: deployed`, and `/q/health` returns `UP`
+- **Catalog**: `user-m-valiente-ece`, base location `s3://user-m-valiente-ece/warehouse/`
+- **RBAC** created by the bootstrap Job:
+
+| Principal | Principal role | Catalog role | Access |
+|---|---|---|---|
+| `dev` | `data_engineer` | `catalog_contributor` | manage content, metadata and access |
+| `analyst` | `data_analyst` | `catalog_reader` | read tables and properties |
+
+- **Credentials**: `dev` and `analyst` credentials extracted from the Job logs to `~/.polaris-credentials.env`, outside the repo and not committed
+
+```bash
+set -a; . /home/onyxia/.polaris-credentials.env; set +a
+curl -s http://polaris-mgmt:8182/q/health
+```
+
+### Issues
+
+- **Patch not applied**: `kubectl rollout status` stayed on `0 out of 1 new pods have been updated` because of the StatefulSet update strategy. Fixed by deleting the pod (`kubectl delete pod vscode-pyspark-228462-0`); the StatefulSet recreated it with the new limits and the volume was kept.
+- **Missing AWS profile**: no `default` profile in the new service, so the `aws` CLI was used with `--endpoint-url "https://$AWS_S3_ENDPOINT"` and the environment credentials.
