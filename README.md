@@ -1,7 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
-Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment and Polaris governance.
+Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment, Polaris governance and Trino deployment.
 
 ## Lab 1 – uv
 
@@ -159,3 +159,21 @@ Spark connected to the Polaris catalog through the Iceberg REST API, with two Sp
 
 - **No `default` AWS profile**: `aws configure export-credentials --profile default` was skipped. The environment credentials of the service were used, with `--endpoint-url "https://$AWS_S3_ENDPOINT"` for the `aws` CLI.
 - **Switching principal**: the PySpark shell was exited and relaunched to start a fresh session with the other credential.
+
+## Lab: Deploy Trino with Helm (k8s)
+
+Trino deployed in my namespace with a Helm chart and connected to the Polaris catalog, as a prerequisite for the Trino labs.
+
+- **Resources**: `vscode-pyspark` patched to `limits` 2000m / 2000Mi and `requests` 200m / 400Mi, to leave quota for Trino
+- **Helm chart** `trino/deployment/`: dependency `trino` 1.45.0, image `480`
+- **Configuration** (`values.yaml`):
+  - coordinator only (`workers: 0`, `includeCoordinator: true`), JVM heap 700M, pod limit 1Gi, 400MB per query
+  - Iceberg catalog `lakehouse` on the Polaris REST API, authenticated with OAuth2 as the `dev` principal
+  - S3 access through the native S3 file system (path-style, SeaweedFS endpoint)
+  - no ingress: Trino is only reachable inside the namespace
+- **Kubernetes objects**: Secret `trino-polaris-oauth` (`dev` credential), Secret `polaris-s3` (unchanged), ConfigMap `trino-polaris-config`
+- **Deployment**: `helm upgrade --install trino ./trino/deployment --wait` gives `STATUS: deployed`, and `curl http://trino:8080/v1/info` returns `200 OK`
+
+### Issues
+
+- **Polaris credentials lost on pod restart**: `/home/onyxia` is not persistent, only `~/work` is. The file `.polaris-credentials.env` was backed up beforehand in `.secrets/` (ignored by Git) and restored after the restart.
