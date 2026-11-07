@@ -1,7 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
-Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment, Polaris governance and Trino deployment.
+Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment, Polaris governance, Trino deployment and Trino gold layer.
 
 ## Lab 1 – uv
 
@@ -177,3 +177,20 @@ Trino deployed in my namespace with a Helm chart and connected to the Polaris ca
 ### Issues
 
 - **Polaris credentials lost on pod restart**: `/home/onyxia` is not persistent, only `~/work` is. The file `.polaris-credentials.env` was backed up beforehand in `.secrets/` (ignored by Git) and restored after the restart.
+
+
+## Lab: Silver to gold with Trino
+
+Gold layer built with SQL in Trino, from the silver Iceberg tables exposed by Polaris (Trino catalog `lakehouse`, authenticated as `dev`).
+
+- **Client**: `trino` and `pandas` added with `uv add`, queries run from `uv run python` through `trino.dbapi.connect`
+- **Silver through Polaris**: `lakehouse.silver.orders` (2829 rows) and `lakehouse.silver.users` (50 rows), no orphan orders
+- **Gold** (`CREATE TABLE AS SELECT`, Iceberg tables in the `gold` namespace of Polaris):
+  - `orders_by_state_month`: orders, units and buyers per state and month
+  - `top_products`: orders and units per product, ranked with `rank()`
+  - `user_activity`: orders, units, first and last order per user (`LEFT JOIN`, 50 rows)
+- **Validation**: totals of the gold tables equal to the silver layer (units, users, orders)
+
+```bash
+uv run python
+```
