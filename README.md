@@ -1,7 +1,7 @@
 # big_data_fw
 
 Repo for the Big Data labs, done on Onyxia with the `vscode-pyspark` service.
-Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment, Polaris governance, Trino deployment and Trino gold layer.
+Labs completed: uv, S3, DuckDB, dbt, Spark RDD, Spark DataFrames, Polaris deployment, Polaris governance, Trino deployment, Trino gold layer and star schema.
 
 ## Lab 1 – uv
 
@@ -194,3 +194,22 @@ Gold layer built with SQL in Trino, from the silver Iceberg tables exposed by Po
 ```bash
 uv run python
 ```
+
+
+## Lab: Star schema with Trino
+
+Gold layer modeled as a star schema in Trino: one fact table and its dimensions, Iceberg tables in the `gold` namespace of Polaris.
+
+| Table | Grain | Content |
+|---|---|---|
+| `fact_orders` | one order | `order_id`, `user_key`, `product_key`, `date_key`, `ordered_at`, `quantity` |
+| `dim_user` | one user | surrogate key `user_key`, `user_id`, name, sex, birthdate, city, state, zip code |
+| `dim_product` | one product | surrogate key `product_key`, product name |
+| `dim_date` | one calendar day | `date_key` (`YYYYMMDD`), year, quarter, month, day of week, weekend flag |
+
+- **Dimensions**: surrogate keys generated with `row_number()`; `dim_date` generated with `sequence()` and `UNNEST` between the first and last order
+- **Fact table**: `LEFT JOIN` lookups of the keys, so an order without a matching dimension would be kept with a `NULL` key; `order_id` kept as a degenerate dimension
+- **Row counts**: `dim_user` 50, `dim_product` 6, `fact_orders` 2829 (same as `silver.orders`)
+- **Query**: `orders_by_state_month` rebuilt from the star only, without reading the silver layer
+- **Validation**: same number of orders and units as the silver layer, and every fact row finds its 3 dimension rows
+- **Git**: metadata of the 7 gold tables synced to `lab_trino/gold/` (data files excluded)
